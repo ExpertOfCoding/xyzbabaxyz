@@ -1,9 +1,11 @@
+const ENGEL_DEBUG  = true;
 const express = require("express");
 const fileUpload = require("express-fileupload")
 const fs = require("fs")
 const {ImgurClient} = require("imgur")
 const app = express();
 const bodyparser = require("body-parser");
+const mongodb = require("mongodb")
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const EmailValidator = require("email-validator");
@@ -12,6 +14,7 @@ const randomstring = require("randomstring")
 const User = require("./userschema");
 const Report = require("./reportschema")
 const cors=require("cors");
+const rlmt = require("express-rate-limit")
 const TokenGenerator = require( 'token-generator' )({
   salt: 'kaanturgunadamdir',
   timestampMap: '1234567890', // 10 chars array for obfuscation proposes
@@ -21,6 +24,19 @@ const corsOptions ={
    credentials:true,            //access-control-allow-credentials:true
    optionSuccessStatus:200,
 }
+const rateLimit = rlmt.rateLimit;
+const limiter = rateLimit({
+	windowMs: 1.5 * 60 * 1000, // 15 minutes
+	limit: 30, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
+	standardHeaders: 'draft-7', // draft-6: `RateLimit-*` headers; draft-7: combined `RateLimit` header
+	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
+	// store: ... , // Redis, Memcached, etc. See below.
+})
+
+// Apply the rate limiting middleware to all requests.
+app.use(limiter)
+
+const KILOMETERS_FOR_ENGELLI = ENGEL_DEBUG ? 0.2 : 0.02   ///////////////////////////////////// IMPORTANT
 const cookieParser = require('cookie-parser');
 const Token = require("./tokenschema");
 app.use(cookieParser());
@@ -147,7 +163,7 @@ app.post("/updatePhoto",(req,res)=>{
       const photoname=randomstring.generate()
       const pathToSaveImage = `./public/${photoname}.jpg`
       const path = converBase64ToImage.converBase64ToImage(req.body.image, pathToSaveImage) 
-      client.upload({image:fs.createReadStream(pathToSaveImage),title:photoname}).then((urlObject)=>{
+      client.upload({image:fs.createReadStream(pathToSaveImage),title:photoname}).then((urlObject)=>{"3"
         if(urlObject.data.link){
           console.log(urlObject)
           fs.unlinkSync(pathToSaveImage)
@@ -245,19 +261,10 @@ app.post("/uploadreport",(req,res)=>{
   }
   })
 
-app.post("/getloc",(req,res)=>{
   function deg2rad(deg) {
     return deg * (Math.PI/180)
   }
   function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
-    console.log("lat1")
-    console.log(lat1)
-    console.log("lon1")
-    console.log(lon1)
-    console.log("lat2")
-    console.log(lat2)
-    console.log("lon2")
-    console.log(lon2)
     var R = 6371; // Radius of the earth in km
     var dLat = deg2rad(lat2-lat1);  // deg2rad below
     var dLon = deg2rad(lon2-lon1); 
@@ -267,9 +274,34 @@ app.post("/getloc",(req,res)=>{
       Math.sin(dLon/2) * Math.sin(dLon/2); 
     var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
     var d = R * c; // Distance in km
-    console.log(R,dLat,dLon,a,c,d)
     return d;
   }
+
+  app.post("/getlocwdistance",(req,res)=>{
+    let notified_reports = req.body.notified_reports
+    // return reports that getDistanceFromLatLonInKm is less than 2.2km with mongoose
+    Report.find({approved:true},{fotourl:1,classification:1,date:1,description:1,location_lat:1,location_long:1,_id:1}).then(reports=>{
+      let reportsArray = []
+      reports.forEach(report => {
+        let distance = getDistanceFromLatLonInKm(report.location_lat,report.location_long,req.body.latidute,req.body.longitude)
+        if(distance<KILOMETERS_FOR_ENGELLI && !notified_reports.includes(report._id.toString())){
+          console.log("REPORT ID : ", report._id , " İNCLUDES ? ", notified_reports.includes(report._id.toString()))
+          reportsArray.push([distance,report])
+          }
+          }
+        
+        )
+        reportsArray.sort()
+        console.log("REPORTS : ",reportsArray)
+      res.json({reports:reportsArray,message:"success"})
+          }).catch(error=>{
+            res.json({message:error})
+            })
+            
+    console.log("Request Maden")
+  })
+
+app.post("/getloc",(req,res)=>{
   // return reports that getDistanceFromLatLonInKm is less than 2.2km with mongoose
   Report.find({approved:true},{fotourl:1,classification:1,date:1,description:1,location_lat:1,location_long:1,_id:0}).then(reports=>{
     let reportsArray = []
@@ -279,7 +311,10 @@ app.post("/getloc",(req,res)=>{
       if(distance<2.2){
         reportsArray.push(report)
         }
-        })
+        }
+      
+      )
+
     res.json({reports:reportsArray,message:"success"})
         }).catch(error=>{
           res.json({message:error})
