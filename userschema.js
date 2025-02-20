@@ -3,17 +3,18 @@ const Schema = mongoose.Schema;
 
 const userSchema = new Schema(
     {
-        username:String,
+        username:{type:String,unique:true,required:true},
         lastphoto:String,
         password:String,
         phototaken: Number,
         peoplehelped: Number,
         daystreak:Number,
-        email:String,
+        email:{type:String,unique:true,required:true},
         reports: Array,
         points: Number,
         siralama:Number,
-        userpp:String
+        userpp:String,
+        league:String
     }
 )
 
